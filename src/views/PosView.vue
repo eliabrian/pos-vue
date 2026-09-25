@@ -16,6 +16,8 @@ const searchQuery = ref('')
 const isLoading = ref(true)
 const isProcessing = ref(false)
 const orderDiscount = ref(0)
+const showCheckoutModal = ref(false)
+const selectedPaymentMethod = ref(null)
 
 const activeProduct = ref(null)
 const selectedVariantsMap = ref({})
@@ -136,20 +138,26 @@ const confirmVariantSelection = () => {
 }
 
 const finalCartTotal = computed(() => {
-  const subtotal = cartStore.subtotal;
+  const subtotal = cartStore.subtotal
   if (orderDiscount.value > 0) {
-    return subtotal - (subtotal * (orderDiscount.value / 100));
+    return subtotal - subtotal * (orderDiscount.value / 100)
   }
-  return subtotal;
-});
+  return subtotal
+})
 
-const handleCheckout = async () => {
+const openCheckoutModal = () => {
   if (cartStore.items.length === 0) return
+  selectedPaymentMethod.value = null
+  showCheckoutModal.value = true
+}
+
+const processPayment = async () => {
+  if (cartStore.items.length === 0 || !selectedPaymentMethod.value) return
   isProcessing.value = true
 
   try {
     const payload = {
-      payment_method: cartStore.paymentMethod || 'cash',
+      payment_method: selectedPaymentMethod.value,
       status: 'completed',
       order_discount: Number(orderDiscount.value),
       products: cartStore.items.map((item) => ({
@@ -166,13 +174,44 @@ const handleCheckout = async () => {
     alert('Transaksi Berhasil!')
     cartStore.clearCart()
     orderDiscount.value = 0
-
+    showCheckoutModal.value = false
+    selectedPaymentMethod.value = null // reset on success
   } catch (error) {
     alert(error.response?.data?.message || 'Gagal memproses transaksi.')
   } finally {
     isProcessing.value = false
   }
 }
+
+// const handleCheckout = async () => {
+//   if (cartStore.items.length === 0) return
+//   isProcessing.value = true
+
+//   try {
+//     const payload = {
+//       payment_method: cartStore.paymentMethod || 'cash',
+//       status: 'completed',
+//       order_discount: Number(orderDiscount.value),
+//       products: cartStore.items.map((item) => ({
+//         id: item.id,
+//         quantity: item.quantity,
+//         notes: item.notes,
+//         variant_items: item.variant_items.map((v) => v.id),
+//       })),
+//     }
+
+//     const idempotencyKey = crypto.randomUUID()
+//     await api.post('/api/orders', payload, { headers: { 'Idempotency-Key': idempotencyKey } })
+
+//     alert('Transaksi Berhasil!')
+//     cartStore.clearCart()
+//     orderDiscount.value = 0
+//   } catch (error) {
+//     alert(error.response?.data?.message || 'Gagal memproses transaksi.')
+//   } finally {
+//     isProcessing.value = false
+//   }
+// }
 
 const handleLogout = async () => {
   await authStore.logout()
@@ -469,6 +508,15 @@ const formatRupiah = (number) => {
 
         <div class="p-4 lg:p-5 border-t border-base-200 shadow-inner flex-none">
           <div class="flex justify-between items-center mb-3">
+            <span class="text-md font-semibold text-base-content/70">Sub-Total</span>
+            <span
+              class="text-md text-base-content/50 block mb-0.5 font-semibold"
+              :class="orderDiscount > 0 ? 'line-through' : ''"
+            >
+              {{ formatRupiah(cartStore.subtotal) }}
+            </span>
+          </div>
+          <div class="flex justify-between items-center mb-3">
             <span class="text-md font-semibold text-base-content/70">Diskon (%)</span>
             <label class="input input-md input-bordered flex items-center gap-2 w-24">
               <input
@@ -485,17 +533,14 @@ const formatRupiah = (number) => {
           <div class="flex justify-between items-end mb-4">
             <span class="font-semibold text-base lg:text-lg">Total</span>
             <div class="text-right">
-              <span v-if="orderDiscount > 0" class="text-md text-base-content/50 block mb-0.5">
-                {{ formatRupiah(cartStore.subtotal) }}
-              </span>
               <span class="text-xl lg:text-2xl font-bold text-primary">
                 {{ formatRupiah(finalCartTotal) }}
               </span>
             </div>
           </div>
           <button
-            @click="handleCheckout"
-            :disabled="cartStore.items.length === 0 || isProcessing"
+            @click="openCheckoutModal"
+            :disabled="cartStore.items.length === 0"
             class="btn btn-primary btn-md lg:btn-lg w-full text-base lg:text-lg"
           >
             {{ isProcessing ? 'Memproses...' : 'Bayar Sekarang' }}
@@ -620,6 +665,171 @@ const formatRupiah = (number) => {
       </form>
     </dialog>
   </div>
+
+  <!-- Checkout Modal (Review & Pay) -->
+  <dialog class="modal" :class="{ 'modal-open': showCheckoutModal }">
+    <div
+      class="modal-box w-11/12 max-w-4xl p-0 flex flex-col md:flex-row overflow-hidden bg-base-100"
+    >
+      <div
+        class="w-full md:w-5/12 bg-base-200/50 p-6 lg:p-8 flex flex-col border-r border-base-200"
+      >
+        <div class="text-center mb-6 pb-4 border-b-2 border-dashed border-base-300">
+          <h3 class="font-bold text-lg uppercase tracking-widest text-base-content/80">
+            Preview Struk
+          </h3>
+        </div>
+
+        <div class="flex-1 overflow-y-auto space-y-4 pr-2">
+          <div
+            v-for="(item, index) in cartStore.items"
+            :key="index"
+            class="flex justify-between text-sm"
+          >
+            <div class="flex-1 pr-4">
+              <span class="font-bold">{{ item.quantity }}x {{ item.name }}</span>
+              <div v-if="item.variant_items.length > 0" class="text-xs text-base-content/60 mt-0.5">
+                <!-- <span v-for="v in item.variant_items" :key="v.id">+ {{ v.name }} </span> -->
+                <div v-for="v in item.variant_items" :key="v.id">+ {{ v.name }}</div>
+              </div>
+            </div>
+            <span class="font-semibold text-right">
+              {{
+                formatRupiah(
+                  ((item.final_price > 0 ? item.final_price : item.price) +
+                    item.variant_items.reduce((s, v) => s + v.price, 0)) *
+                    item.quantity,
+                )
+              }}
+            </span>
+          </div>
+        </div>
+
+        <div class="mt-6 pt-4 border-t-2 border-dashed border-base-300 space-y-2">
+          <div class="flex justify-between text-sm font-medium text-base-content/70">
+            <span>Subtotal</span>
+            <span>{{ formatRupiah(cartStore.subtotal) }}</span>
+          </div>
+          <div v-if="orderDiscount > 0" class="flex justify-between text-sm font-bold text-error">
+            <span>Diskon ({{ orderDiscount }}%)</span>
+            <span>- {{ formatRupiah(cartStore.subtotal - finalCartTotal) }}</span>
+          </div>
+          <div class="flex justify-between text-xl font-bold mt-3 pt-3 border-t border-base-300">
+            <span>Total</span>
+            <span class="text-primary">{{ formatRupiah(finalCartTotal) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Side: Payment Actions -->
+      <div class="w-full md:w-7/12 p-6 lg:p-8 flex flex-col bg-base-100">
+        <h3 class="font-bold text-xl lg:text-2xl mb-2">Pilih Pembayaran</h3>
+        <p class="text-sm text-base-content/60 mb-6">
+          Pilih metode pembayaran yang digunakan oleh pelanggan.
+        </p>
+
+        <!-- Payment Buttons Grid -->
+        <div class="grid grid-cols-2 gap-3 lg:gap-4 flex-1 content-start">
+          <button
+            @click="selectedPaymentMethod = 'cash'"
+            :class="{
+              'border-primary bg-primary/10 text-primary ring-2 ring-primary/20':
+                selectedPaymentMethod === 'cash',
+            }"
+            class="btn h-24 lg:h-32 flex flex-col gap-2 bg-base-100 border-2 border-base-200 hover:border-primary hover:bg-primary/5 hover:text-primary transition-all"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-8 w-8 lg:h-10 lg:w-10"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
+              />
+            </svg>
+            <span class="font-bold text-base">Tunai (Cash)</span>
+          </button>
+
+          <button
+            @click="selectedPaymentMethod = 'static_qris'"
+            :class="{
+              'border-primary bg-primary/10 text-primary ring-2 ring-primary/20':
+                selectedPaymentMethod === 'static_qris',
+            }"
+            class="btn h-24 lg:h-32 flex flex-col gap-2 bg-base-100 border-2 border-base-200 hover:border-primary hover:bg-primary/5 hover:text-primary transition-all"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-8 w-8 lg:h-10 lg:w-10"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
+              />
+            </svg>
+            <span class="font-bold text-base">QRIS (Static)</span>
+          </button>
+
+          <button
+            @click="selectedPaymentMethod = 'dynamic_qris'"
+            :class="{
+              'border-primary bg-primary/10 text-primary ring-2 ring-primary/20':
+                selectedPaymentMethod === 'dynamic_qris',
+            }"
+            class="btn h-24 lg:h-32 flex flex-col gap-2 bg-base-100 border-2 border-base-200 hover:border-primary hover:bg-primary/5 hover:text-primary transition-all col-span-2"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-8 w-8 lg:h-10 lg:w-10"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
+              />
+            </svg>
+            <span class="font-bold text-base">QRIS (Dynamic)</span>
+          </button>
+        </div>
+
+        <!-- Bottom Actions -->
+        <div class="mt-8 pt-4 flex gap-3">
+          <button
+            @click="showCheckoutModal = false"
+            :disabled="isProcessing"
+            class="btn btn-ghost bg-base-200 hover:bg-base-300 btn-lg flex-1 text-base"
+          >
+            Kembali
+          </button>
+          <button
+            @click="processPayment"
+            :disabled="!selectedPaymentMethod || isProcessing"
+            class="btn btn-primary btn-lg flex-1 text-base"
+          >
+            {{ isProcessing ? 'Memproses...' : 'Proses Bayar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <form method="dialog" class="modal-backdrop">
+      <button @click="showCheckoutModal = false" :disabled="isProcessing">Tutup</button>
+    </form>
+  </dialog>
 </template>
 
 <style scoped>
