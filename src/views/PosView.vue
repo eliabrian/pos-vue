@@ -15,6 +15,7 @@ const activeCategory = ref(null)
 const searchQuery = ref('')
 const isLoading = ref(true)
 const isProcessing = ref(false)
+const orderDiscount = ref(0)
 
 const activeProduct = ref(null)
 const selectedVariantsMap = ref({})
@@ -134,6 +135,14 @@ const confirmVariantSelection = () => {
   activeProduct.value = null
 }
 
+const finalCartTotal = computed(() => {
+  const subtotal = cartStore.subtotal;
+  if (orderDiscount.value > 0) {
+    return subtotal - (subtotal * (orderDiscount.value / 100));
+  }
+  return subtotal;
+});
+
 const handleCheckout = async () => {
   if (cartStore.items.length === 0) return
   isProcessing.value = true
@@ -142,6 +151,7 @@ const handleCheckout = async () => {
     const payload = {
       payment_method: cartStore.paymentMethod || 'cash',
       status: 'completed',
+      order_discount: Number(orderDiscount.value),
       products: cartStore.items.map((item) => ({
         id: item.id,
         quantity: item.quantity,
@@ -155,6 +165,8 @@ const handleCheckout = async () => {
 
     alert('Transaksi Berhasil!')
     cartStore.clearCart()
+    orderDiscount.value = 0
+
   } catch (error) {
     alert(error.response?.data?.message || 'Gagal memproses transaksi.')
   } finally {
@@ -455,12 +467,31 @@ const formatRupiah = (number) => {
           </ul>
         </div>
 
-        <div class="p-4 lg:p-5 border-t border-base-200 shadow-inner">
+        <div class="p-4 lg:p-5 border-t border-base-200 shadow-inner flex-none">
+          <div class="flex justify-between items-center mb-3">
+            <span class="text-md font-semibold text-base-content/70">Diskon (%)</span>
+            <label class="input input-md input-bordered flex items-center gap-2 w-24">
+              <input
+                type="number"
+                v-model="orderDiscount"
+                min="0"
+                max="100"
+                placeholder="0"
+                class="grow text-right"
+              />
+              <span class="text-base-content/50">%</span>
+            </label>
+          </div>
           <div class="flex justify-between items-end mb-4">
             <span class="font-semibold text-base lg:text-lg">Total</span>
-            <span class="text-xl lg:text-2xl font-bold text-primary">{{
-              formatRupiah(cartStore.subtotal)
-            }}</span>
+            <div class="text-right">
+              <span v-if="orderDiscount > 0" class="text-md text-base-content/50 block mb-0.5">
+                {{ formatRupiah(cartStore.subtotal) }}
+              </span>
+              <span class="text-xl lg:text-2xl font-bold text-primary">
+                {{ formatRupiah(finalCartTotal) }}
+              </span>
+            </div>
           </div>
           <button
             @click="handleCheckout"
@@ -561,7 +592,7 @@ const formatRupiah = (number) => {
             <label class="font-bold text-lg text-base-content block">Catatan Tambahan</label>
             <textarea
               v-model="itemNotes"
-              placeholder="Cth: Jangan pakai es, gulanya dikurangi..."
+              placeholder="Tulis catatan di sini..."
               class="textarea textarea-bordered w-full text-base bg-base-100 focus:textarea-primary"
               rows="2"
             ></textarea>
