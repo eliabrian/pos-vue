@@ -23,6 +23,23 @@ const activeProduct = ref(null)
 const selectedVariantsMap = ref({})
 const itemNotes = ref('')
 
+const isTransactionsDrawerOpen = ref(false)
+
+const todaysTransactions = ref([
+  {
+    id: 1,
+    receipt_number: '2-27092026-00001',
+    total_price: 125000,
+    created_at: '10:15 WIB',
+  },
+  {
+    id: 2,
+    receipt_number: '2-27092026-00002',
+    total_price: 45000,
+    created_at: '10:42 WIB',
+  },
+])
+
 const fetchProducts = async () => {
   try {
     const response = await api.get('/api/products?include=category,variants')
@@ -175,43 +192,13 @@ const processPayment = async () => {
     cartStore.clearCart()
     orderDiscount.value = 0
     showCheckoutModal.value = false
-    selectedPaymentMethod.value = null // reset on success
+    selectedPaymentMethod.value = null
   } catch (error) {
     alert(error.response?.data?.message || 'Gagal memproses transaksi.')
   } finally {
     isProcessing.value = false
   }
 }
-
-// const handleCheckout = async () => {
-//   if (cartStore.items.length === 0) return
-//   isProcessing.value = true
-
-//   try {
-//     const payload = {
-//       payment_method: cartStore.paymentMethod || 'cash',
-//       status: 'completed',
-//       order_discount: Number(orderDiscount.value),
-//       products: cartStore.items.map((item) => ({
-//         id: item.id,
-//         quantity: item.quantity,
-//         notes: item.notes,
-//         variant_items: item.variant_items.map((v) => v.id),
-//       })),
-//     }
-
-//     const idempotencyKey = crypto.randomUUID()
-//     await api.post('/api/orders', payload, { headers: { 'Idempotency-Key': idempotencyKey } })
-
-//     alert('Transaksi Berhasil!')
-//     cartStore.clearCart()
-//     orderDiscount.value = 0
-//   } catch (error) {
-//     alert(error.response?.data?.message || 'Gagal memproses transaksi.')
-//   } finally {
-//     isProcessing.value = false
-//   }
-// }
 
 const handleLogout = async () => {
   await authStore.logout()
@@ -238,6 +225,67 @@ const formatRupiah = (number) => {
         </div>
       </div>
       <div class="navbar-end flex items-center gap-2 lg:gap-4 w-auto">
+        <div class="drawer drawer-end w-fit">
+          <input type="checkbox" id="transaction-drawer" class="drawer-toggle" />
+          <div class="drawer-content">
+            <label for="transaction-drawer" class="btn btn-circle">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+            </label>
+          </div>
+          <div class="drawer-side z-100">
+            <label
+              for="transaction-drawer"
+              aria-label="close sidebar"
+              class="drawer-overlay"
+            ></label>
+            <ul class="menu bg-base-100 min-h-full w-80 md:w-96 flex flex-col shadow-2xl">
+              <div class="p-4 border-b border-base-200 flex justify-between items-center flex-none">
+                <h3 class="font-bold text-lg">Transaksi Hari Ini</h3>
+              </div>
+
+              <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-base-200/30">
+                <div
+                  v-if="todaysTransactions.length === 0"
+                  class="text-center text-base-content/50 py-10"
+                >
+                  <li>Belum ada transaksi hari ini.</li>
+                </div>
+
+                <div
+                  v-for="tx in todaysTransactions"
+                  :key="tx.id"
+                  class="bg-base-100 border border-base-200 rounded-xl p-4 shadow-sm"
+                >
+                  <div class="flex justify-between items-start mb-3">
+                    <div>
+                      <div class="font-bold text-sm text-base-content">{{ tx.receipt_number }}</div>
+                      <div class="text-xs text-base-content/50 mt-0.5">{{ tx.created_at }}</div>
+                    </div>
+                    <div class="font-bold text-primary">{{ formatRupiah(tx.total_price) }}</div>
+                  </div>
+
+                  <div class="flex gap-2 mt-4 pt-3 border-t border-base-100 border-dashed">
+                    <button class="btn btn-sm btn-outline flex-1 text-xs">Lihat Item</button>
+                    <button class="btn btn-sm btn-primary flex-1 text-xs">Cetak Struk</button>
+                  </div>
+                </div>
+              </div>
+            </ul>
+          </div>
+        </div>
         <div class="dropdown dropdown-end">
           <div tabindex="0" role="button" class="btn btn-outline">{{ tenantName }}</div>
           <ul
@@ -267,6 +315,51 @@ const formatRupiah = (number) => {
         </div>
       </div>
     </header>
+
+    <div class="drawer-side z-100">
+      <label for="transactions-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
+
+      <div class="bg-base-100 min-h-full w-80 md:w-96 flex flex-col shadow-2xl">
+        <!-- Drawer Header -->
+        <div class="p-4 border-b border-base-200 flex justify-between items-center flex-none">
+          <h3 class="font-bold text-lg">Transaksi Hari Ini</h3>
+          <button @click="isTransactionsDrawerOpen = false" class="btn btn-sm btn-ghost btn-circle">
+            ✕
+          </button>
+        </div>
+
+        <!-- Drawer Body (Transaction List) -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-base-200/30">
+          <div
+            v-if="todaysTransactions.length === 0"
+            class="text-center text-base-content/50 py-10"
+          >
+            <p>Belum ada transaksi hari ini.</p>
+          </div>
+
+          <!-- Transaction Card Loop -->
+          <div
+            v-for="tx in todaysTransactions"
+            :key="tx.id"
+            class="bg-base-100 border border-base-200 rounded-xl p-4 shadow-sm"
+          >
+            <div class="flex justify-between items-start mb-3">
+              <div>
+                <div class="font-bold text-sm text-base-content">{{ tx.receipt_number }}</div>
+                <div class="text-xs text-base-content/50 mt-0.5">{{ tx.created_at }}</div>
+              </div>
+              <div class="font-bold text-primary">{{ formatRupiah(tx.total_price) }}</div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex gap-2 mt-4 pt-3 border-t border-base-100 border-dashed">
+              <button class="btn btn-sm btn-outline flex-1 text-xs">Lihat Item</button>
+              <button class="btn btn-sm btn-primary flex-1 text-xs">Cetak Struk</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="flex w-full bg-base-100 flex-none z-10 border-t border-base-200 shadow-sm">
       <div class="flex-1 px-4 lg:px-6 py-3 min-w-10 flex items-center">
@@ -322,66 +415,86 @@ const formatRupiah = (number) => {
     <main class="flex-1 flex overflow-hidden min-h-0">
       <section class="flex-1 overflow-y-auto p-4 lg:p-6 bg-base-200/50">
         <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 lg:gap-5">
-          <div
-            v-for="product in filteredProducts"
-            :key="product.id"
-            @click="handleProductClick(product)"
-            class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden flex flex-col h-full transition-all"
-            :class="
-              product.stock === 0
-                ? 'opacity-50 grayscale cursor-not-allowed'
-                : 'hover:shadow-md active:scale-95 cursor-pointer'
-            "
-          >
-            <figure class="h-28 lg:h-32 bg-base-200 relative shrink-0">
-              <div
-                class="absolute top-2 right-2 badge backdrop-blur-sm shadow-sm font-medium border-0"
-                :class="product.stock === 0 ? 'badge-error' : 'bg-base-100'"
-              >
-                {{ product.stock === 0 ? 'Habis' : 'Tersedia' }}
-              </div>
-              <img
-                v-if="product.image"
-                :src="`http://pos.test/` + product.image"
-                alt=""
-                class="object-cover h-full w-full"
-              />
-            </figure>
-            <div class="card-body p-3 lg:p-4 flex flex-col grow">
-              <h3 class="card-title text-sm lg:text-base font-bold truncate block w-full">
-                {{ product.name }}
-              </h3>
-              <div class="mt-auto pt-2">
-                <div
-                  v-if="product.final_price > 0 && product.final_price < product.price"
-                  class="flex flex-col"
-                >
-                  <div class="flex items-center gap-1.5 mb-0.5">
-                    <span class="text-xs text-base-content/50 line-through font-medium">
-                      {{ formatRupiah(product.price) }}
-                    </span>
+          <template v-if="isLoading">
+            <div
+              v-for="n in 10"
+              :key="`skel-${n}`"
+              class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden flex flex-col h-full"
+            >
+              <div class="skeleton h-28 lg:h-32 w-full rounded-none"></div>
 
-                    <span
-                      v-if="product.discount > 0"
-                      class="badge badge-error badge-sm text-[10px] font-bold text-white border-0 h-4 px-1.5 rounded-sm"
-                    >
-                      {{ product.discount }}%
-                    </span>
-                  </div>
+              <div class="card-body p-3 lg:p-4 flex flex-col grow gap-2">
+                <div class="skeleton h-4 w-full"></div>
+                <div class="skeleton h-4 w-2/3"></div>
 
-                  <span class="font-bold text-base lg:text-lg text-primary leading-none">
-                    {{ formatRupiah(product.final_price) }}
-                  </span>
-                </div>
-
-                <div v-else>
-                  <p class="font-bold text-base lg:text-lg text-primary">
-                    {{ formatRupiah(product.price) }}
-                  </p>
+                <div class="mt-auto pt-2">
+                  <div class="skeleton h-5 w-1/2"></div>
                 </div>
               </div>
             </div>
-          </div>
+          </template>
+
+          <template v-else>
+            <div
+              v-for="product in filteredProducts"
+              :key="product.id"
+              @click="handleProductClick(product)"
+              class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden flex flex-col h-full transition-all"
+              :class="
+                product.stock === 0
+                  ? 'opacity-50 grayscale cursor-not-allowed'
+                  : 'hover:shadow-md active:scale-95 cursor-pointer'
+              "
+            >
+              <figure class="h-28 lg:h-32 bg-base-200 relative shrink-0">
+                <div
+                  class="absolute top-2 right-2 badge backdrop-blur-sm shadow-sm font-medium border-0"
+                  :class="product.stock === 0 ? 'badge-error' : 'bg-base-100'"
+                >
+                  {{ product.stock === 0 ? 'Habis' : 'Tersedia' }}
+                </div>
+                <img
+                  v-if="product.image"
+                  :src="`http://pos.test/` + product.image"
+                  alt=""
+                  class="object-cover h-full w-full"
+                />
+              </figure>
+              <div class="card-body p-3 lg:p-4 flex flex-col grow">
+                <h3 class="card-title text-sm lg:text-base font-bold truncate block w-full">
+                  {{ product.name }}
+                </h3>
+
+                <div class="mt-auto pt-2">
+                  <div
+                    v-if="product.final_price > 0 && product.final_price < product.price"
+                    class="flex flex-col"
+                  >
+                    <div class="flex items-center gap-1.5 mb-0.5">
+                      <span class="text-xs text-base-content/50 line-through font-medium">
+                        {{ formatRupiah(product.price) }}
+                      </span>
+                      <span
+                        v-if="product.discount > 0"
+                        class="badge badge-error badge-sm text-[10px] font-bold text-white border-0 h-4 px-1.5 rounded-sm"
+                      >
+                        {{ product.discount }}%
+                      </span>
+                    </div>
+                    <span class="font-bold text-base lg:text-lg text-primary leading-none">
+                      {{ formatRupiah(product.final_price) }}
+                    </span>
+                  </div>
+
+                  <div v-else>
+                    <p class="font-bold text-base lg:text-lg text-primary">
+                      {{ formatRupiah(product.price) }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
       </section>
 
@@ -525,7 +638,7 @@ const formatRupiah = (number) => {
                 min="0"
                 max="100"
                 placeholder="0"
-                class="grow text-right"
+                class="grow text-center"
               />
               <span class="text-base-content/50">%</span>
             </label>
