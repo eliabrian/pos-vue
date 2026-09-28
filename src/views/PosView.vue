@@ -3,7 +3,7 @@ import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 import api from '@/utils/api'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 const tenantName = localStorage.getItem('pos_tenant_name')
 const authStore = useAuthStore()
@@ -23,22 +23,69 @@ const activeProduct = ref(null)
 const selectedVariantsMap = ref({})
 const itemNotes = ref('')
 
-const isTransactionsDrawerOpen = ref(false)
+const todaysTransactions = ref([])
+const selectedTransaction = ref(null)
 
-const todaysTransactions = ref([
-  {
-    id: 1,
-    receipt_number: '2-27092026-00001',
-    total_price: 125000,
-    created_at: '10:15 WIB',
-  },
-  {
-    id: 2,
-    receipt_number: '2-27092026-00002',
-    total_price: 45000,
-    created_at: '10:42 WIB',
-  },
-])
+const dateFilter = ref('today')
+const customDate = ref('')
+
+const formatTime = (isoString) => {
+  const date = new Date(isoString)
+  return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
+}
+
+const openTransactionDetails = (tx) => {
+  selectedTransaction.value = tx
+}
+
+const fetchTransactions = async () => {
+  let dateQuery = ''
+  const today = new Date()
+
+  if (dateFilter.value === 'today') {
+    dateQuery = today.toISOString().split('T')[0]
+  } else if (dateFilter.value === 'yesterday') {
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    dateQuery = yesterday.toISOString().split('T')[0]
+  } else if (dateFilter.value === 'custom') {
+    if (!customDate.value) return
+    dateQuery = customDate.value
+  }
+
+  try {
+    const response = await api.get(`/api/orders?include=products&date=${dateQuery}`)
+    const rawOrders = response.data.data
+
+    todaysTransactions.value = rawOrders.map((order) => {
+      return {
+        id: order.id,
+        receipt_number: order.attributes.receipt_number,
+        total_price: parseFloat(order.attributes.total_price),
+        payment_method: order.attributes.payment_method,
+        created_at: formatTime(order.attributes.created_at),
+        items: order.attributes.items || []
+      }
+    })
+  } catch (error) {
+    console.error('Gagal mengambil data transaksi', error)
+  }
+}
+
+const parseVariants = (variantData) => {
+  if (!variantData) return []
+  if (Array.isArray(variantData)) return variantData
+  try {
+    return JSON.parse(variantData)
+  } catch (e) {
+    console.error("Failed to parse variants:", e)
+    return []
+  }
+}
+
+watch([dateFilter, customDate], () => {
+  fetchTransactions()
+})
 
 const fetchProducts = async () => {
   try {
@@ -97,6 +144,7 @@ const fetchProducts = async () => {
 
 onMounted(() => {
   fetchProducts()
+  fetchTransactions()
 })
 
 const filteredProducts = computed(() => {
@@ -193,6 +241,7 @@ const processPayment = async () => {
     orderDiscount.value = 0
     showCheckoutModal.value = false
     selectedPaymentMethod.value = null
+    fetchTransactions()
   } catch (error) {
     alert(error.response?.data?.message || 'Gagal memproses transaksi.')
   } finally {
@@ -244,6 +293,85 @@ const formatRupiah = (number) => {
                 />
               </svg>
             </label>
+
+            <!-- Transaction Detail Modal -->
+            <dialog class="modal" :class="{ 'modal-open': selectedTransaction }">
+              <div class="modal-box w-11/12 max-w-md bg-base-100">
+
+                <!-- Header -->
+                <div class="flex justify-between items-start mb-6 border-b border-base-200 pb-4">
+                  <div>
+                    <h3 class="font-bold text-lg text-base-content">Detail Transaksi</h3>
+                    <p class="text-sm text-base-content/60">{{ selectedTransaction?.receipt_number }}</p>
+                  </div>
+                  <div class="badge badge-primary font-semibold uppercase text-xs">
+                    {{ selectedTransaction?.payment_method?.replace('_', ' ') }}
+                  </div>
+                </div>
+
+                <!-- Items List -->
+                <div class="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+
+                  <div
+                    v-for="(item, index) in selectedTransaction?.items || []"
+                    :key="index"
+                    class="flex justify-between text-sm"
+                  >
+                    <div class="flex-1 pr-4">
+                      <span class="font-bold text-base-content">{{ item.quantity }}x {{ item.name }}</span>
+
+                      <div v-if="item.variant_selected" class="text-xs font-medium text-base-content/70 mt-0.5">
+                        <div
+                          v-for="(variant, vIndex) in parseVariants(item.variant_selected)"
+                          :key="vIndex"
+                          class="flex justify-between w-full pr-4"
+                        >
+                          <span>+ {{ variant.variant_name }}: {{ variant.item_name }}</span>
+                          <span v-if="variant.price > 0" class="text-base-content/50">
+                            {{ formatRupiah(variant.price) }}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div v-if="item.notes" class="text-xs italic text-base-content/50 mt-1">
+                        Catatan: "{{ item.notes }}"
+                      </div>
+                    </div>
+                    <span class="font-semibold text-right text-base-content whitespace-nowrap">
+                      {{ formatRupiah(item.sub_total) }}
+                    </span>
+                  </div>
+
+                  <div v-if="!selectedTransaction?.items?.length" class="text-center text-base-content/40 py-4 italic text-sm">
+                    Data item belum dimuat.
+                  </div>
+
+                </div>
+
+                <div class="mt-6 pt-4 border-t border-base-200">
+                  <div class="flex justify-between items-end">
+                    <span class="font-bold text-base">Total Akhir</span>
+                    <span class="text-xl font-bold text-primary">
+                      {{ formatRupiah(selectedTransaction?.total_price || 0) }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="modal-action mt-8">
+                  <button class="btn btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" />
+                    </svg>
+                    Cetak Struk
+                  </button>
+                  <button class="btn" @click="selectedTransaction = null">Tutup</button>
+                </div>
+              </div>
+
+              <form method="dialog" class="modal-backdrop">
+                <button @click="selectedTransaction = null">Tutup</button>
+              </form>
+            </dialog>
           </div>
           <div class="drawer-side z-100">
             <label
@@ -252,8 +380,28 @@ const formatRupiah = (number) => {
               class="drawer-overlay"
             ></label>
             <ul class="menu bg-base-100 min-h-full w-80 md:w-96 flex flex-col shadow-2xl">
-              <div class="p-4 border-b border-base-200 flex justify-between items-center flex-none">
-                <h3 class="font-bold text-lg">Transaksi Hari Ini</h3>
+              <div class="p-4 border-b border-base-200 flex flex-col gap-3 flex-none bg-base-100 z-10">
+                <div class="flex justify-between items-center">
+                  <h3 class="font-bold text-lg">Riwayat Transaksi</h3>
+                </div>
+
+                <div class="flex gap-2">
+                  <select
+                    v-model="dateFilter"
+                    class="select select-bordered select-sm flex-1 font-semibold"
+                  >
+                    <option value="today">Hari Ini</option>
+                    <option value="yesterday">Kemarin</option>
+                    <option value="custom">Pilih Tanggal...</option>
+                  </select>
+
+                  <input
+                    v-if="dateFilter === 'custom'"
+                    type="date"
+                    v-model="customDate"
+                    class="input input-bordered input-sm w-36 flex-none"
+                  />
+                </div>
               </div>
 
               <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-base-200/30">
@@ -261,7 +409,7 @@ const formatRupiah = (number) => {
                   v-if="todaysTransactions.length === 0"
                   class="text-center text-base-content/50 py-10"
                 >
-                  <li>Belum ada transaksi hari ini.</li>
+                  <li>Belum ada transaksi.</li>
                 </div>
 
                 <div
@@ -278,8 +426,12 @@ const formatRupiah = (number) => {
                   </div>
 
                   <div class="flex gap-2 mt-4 pt-3 border-t border-base-100 border-dashed">
-                    <button class="btn btn-sm btn-outline flex-1 text-xs">Lihat Item</button>
-                    <button class="btn btn-sm btn-primary flex-1 text-xs">Cetak Struk</button>
+                    <button
+                      @click="openTransactionDetails(tx)"
+                      class="btn btn-sm btn-primary flex-1 text-xs"
+                    >
+                      Lihat Item
+                    </button>
                   </div>
                 </div>
               </div>
@@ -323,9 +475,6 @@ const formatRupiah = (number) => {
         <!-- Drawer Header -->
         <div class="p-4 border-b border-base-200 flex justify-between items-center flex-none">
           <h3 class="font-bold text-lg">Transaksi Hari Ini</h3>
-          <button @click="isTransactionsDrawerOpen = false" class="btn btn-sm btn-ghost btn-circle">
-            ✕
-          </button>
         </div>
 
         <!-- Drawer Body (Transaction List) -->
@@ -334,10 +483,9 @@ const formatRupiah = (number) => {
             v-if="todaysTransactions.length === 0"
             class="text-center text-base-content/50 py-10"
           >
-            <p>Belum ada transaksi hari ini.</p>
+            <p>Belum ada transaksi.</p>
           </div>
 
-          <!-- Transaction Card Loop -->
           <div
             v-for="tx in todaysTransactions"
             :key="tx.id"
