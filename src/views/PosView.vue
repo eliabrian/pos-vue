@@ -3,7 +3,7 @@ import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 import api from '@/utils/api'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const tenantName = localStorage.getItem('pos_tenant_name')
 const authStore = useAuthStore()
@@ -64,7 +64,7 @@ const fetchTransactions = async () => {
         total_price: parseFloat(order.attributes.total_price),
         payment_method: order.attributes.payment_method,
         created_at: formatTime(order.attributes.created_at),
-        items: order.attributes.items || []
+        items: order.attributes.items || [],
       }
     })
   } catch (error) {
@@ -78,7 +78,7 @@ const parseVariants = (variantData) => {
   try {
     return JSON.parse(variantData)
   } catch (e) {
-    console.error("Failed to parse variants:", e)
+    console.error('Failed to parse variants:', e)
     return []
   }
 }
@@ -216,6 +216,35 @@ const openCheckoutModal = () => {
   showCheckoutModal.value = true
 }
 
+let statusInterval = null
+
+const checkOrderStatus = (receiptNumber) => {
+  return new Promise((resolve, reject) => {
+    if (statusInterval) clearInterval(statusInterval)
+
+    statusInterval = setInterval(async () => {
+      try {
+        const response = await api.get(`/api/orders/${receiptNumber}/status`)
+        const status = response.data.status
+
+        if (status === 'completed') {
+          clearInterval(statusInterval)
+          resolve(true)
+        } else if (status === 'failed') {
+          clearInterval(statusInterval)
+          reject(new Error('Pembayaran gagal atau kadaluarsa.'))
+        }
+      } catch (error) {
+        console.error('Error checking status', error)
+      }
+    }, 5000)
+  })
+}
+
+onUnmounted(() => {
+  if (statusInterval) clearInterval(statusInterval)
+})
+
 const processPayment = async () => {
   if (cartStore.items.length === 0 || !selectedPaymentMethod.value) return
   isProcessing.value = true
@@ -234,9 +263,25 @@ const processPayment = async () => {
     }
 
     const idempotencyKey = crypto.randomUUID()
-    await api.post('/api/orders', payload, { headers: { 'Idempotency-Key': idempotencyKey } })
+    const response = await api.post('/api/orders', payload, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    })
 
-    alert('Transaksi Berhasil!')
+    const orderData = response.data.data
+
+    if (orderData.payment_url && orderData.payment_method == 'dynamic_qris') {
+      window.loadJokulCheckout(orderData.payment_url)
+      try {
+        await checkOrderStatus(orderData.receipt_number)
+
+        alert('Pembayaran Berhasil Diterima!')
+      } catch (err) {
+        alert(err.message)
+      }
+    } else {
+      alert('Transaksi Berhasil!')
+    }
+
     cartStore.clearCart()
     orderDiscount.value = 0
     showCheckoutModal.value = false
@@ -297,12 +342,13 @@ const formatRupiah = (number) => {
             <!-- Transaction Detail Modal -->
             <dialog class="modal" :class="{ 'modal-open': selectedTransaction }">
               <div class="modal-box w-11/12 max-w-md bg-base-100">
-
                 <!-- Header -->
                 <div class="flex justify-between items-start mb-6 border-b border-base-200 pb-4">
                   <div>
                     <h3 class="font-bold text-lg text-base-content">Detail Transaksi</h3>
-                    <p class="text-sm text-base-content/60">{{ selectedTransaction?.receipt_number }}</p>
+                    <p class="text-sm text-base-content/60">
+                      {{ selectedTransaction?.receipt_number }}
+                    </p>
                   </div>
                   <div class="badge badge-primary font-semibold uppercase text-xs">
                     {{ selectedTransaction?.payment_method?.replace('_', ' ') }}
@@ -311,16 +357,20 @@ const formatRupiah = (number) => {
 
                 <!-- Items List -->
                 <div class="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
-
                   <div
                     v-for="(item, index) in selectedTransaction?.items || []"
                     :key="index"
                     class="flex justify-between text-sm"
                   >
                     <div class="flex-1 pr-4">
-                      <span class="font-bold text-base-content">{{ item.quantity }}x {{ item.name }}</span>
+                      <span class="font-bold text-base-content"
+                        >{{ item.quantity }}x {{ item.name }}</span
+                      >
 
-                      <div v-if="item.variant_selected" class="text-xs font-medium text-base-content/70 mt-0.5">
+                      <div
+                        v-if="item.variant_selected"
+                        class="text-xs font-medium text-base-content/70 mt-0.5"
+                      >
                         <div
                           v-for="(variant, vIndex) in parseVariants(item.variant_selected)"
                           :key="vIndex"
@@ -342,10 +392,12 @@ const formatRupiah = (number) => {
                     </span>
                   </div>
 
-                  <div v-if="!selectedTransaction?.items?.length" class="text-center text-base-content/40 py-4 italic text-sm">
+                  <div
+                    v-if="!selectedTransaction?.items?.length"
+                    class="text-center text-base-content/40 py-4 italic text-sm"
+                  >
                     Data item belum dimuat.
                   </div>
-
                 </div>
 
                 <div class="mt-6 pt-4 border-t border-base-200">
@@ -359,8 +411,19 @@ const formatRupiah = (number) => {
 
                 <div class="modal-action mt-8">
                   <button class="btn btn-primary">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-5">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                      class="size-5"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z"
+                      />
                     </svg>
                     Cetak Struk
                   </button>
@@ -380,7 +443,9 @@ const formatRupiah = (number) => {
               class="drawer-overlay"
             ></label>
             <ul class="menu bg-base-100 min-h-full w-80 md:w-96 flex flex-col shadow-2xl">
-              <div class="p-4 border-b border-base-200 flex flex-col gap-3 flex-none bg-base-100 z-10">
+              <div
+                class="p-4 border-b border-base-200 flex flex-col gap-3 flex-none bg-base-100 z-10"
+              >
                 <div class="flex justify-between items-center">
                   <h3 class="font-bold text-lg">Riwayat Transaksi</h3>
                 </div>
@@ -1063,7 +1128,7 @@ const formatRupiah = (number) => {
                 d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
               />
             </svg>
-            <span class="font-bold text-base">QRIS (Dynamic)</span>
+            <span class="font-bold text-base">DOKU</span>
           </button>
         </div>
 
