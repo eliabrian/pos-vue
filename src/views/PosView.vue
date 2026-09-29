@@ -949,8 +949,8 @@ const formatRupiah = (number) => {
           >
             <div class="flex-1 pr-4">
               <span class="font-bold">{{ item.quantity }}x {{ item.name }}</span>
+              <div class="text-xs italic text-base-content/50">{{ item.notes }}</div>
               <div v-if="item.variant_items.length > 0" class="text-xs text-base-content/60 mt-0.5">
-                <!-- <span v-for="v in item.variant_items" :key="v.id">+ {{ v.name }} </span> -->
                 <div v-for="v in item.variant_items" :key="v.id">+ {{ v.name }}</div>
               </div>
             </div>
