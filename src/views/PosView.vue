@@ -29,6 +29,8 @@ const selectedTransaction = ref(null)
 const dateFilter = ref('today')
 const customDate = ref('')
 
+const showSuccessModal = ref(false)
+
 const formatTime = (isoString) => {
   const date = new Date(isoString)
   return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB'
@@ -228,6 +230,7 @@ const checkOrderStatus = (receiptNumber) => {
         const status = response.data.status
 
         if (status === 'completed') {
+          window.closeJokul()
           clearInterval(statusInterval)
           resolve(true)
         } else if (status === 'failed') {
@@ -240,6 +243,14 @@ const checkOrderStatus = (receiptNumber) => {
     }, 5000)
   })
 }
+
+const handleCancelCheckout = () => {
+  showCheckoutModal.value = false;
+  if (statusInterval) {
+    clearInterval(statusInterval);
+  }
+  isProcessing.value = false;
+};
 
 onUnmounted(() => {
   if (statusInterval) clearInterval(statusInterval)
@@ -274,7 +285,7 @@ const processPayment = async () => {
       try {
         await checkOrderStatus(orderData.receipt_number)
 
-        alert('Pembayaran Berhasil Diterima!')
+        showSuccessModal.value = true
       } catch (err) {
         alert(err.message)
       }
@@ -292,6 +303,10 @@ const processPayment = async () => {
   } finally {
     isProcessing.value = false
   }
+}
+
+const closeSuccessModal = () => {
+  showSuccessModal.value = false;
 }
 
 const handleLogout = async () => {
@@ -1135,7 +1150,7 @@ const formatRupiah = (number) => {
         <!-- Bottom Actions -->
         <div class="mt-8 pt-4 flex gap-3">
           <button
-            @click="showCheckoutModal = false"
+            @click="handleCancelCheckout"
             :disabled="isProcessing"
             class="btn btn-ghost bg-base-200 hover:bg-base-300 btn-lg flex-1 text-base"
           >
@@ -1154,6 +1169,27 @@ const formatRupiah = (number) => {
 
     <form method="dialog" class="modal-backdrop">
       <button @click="showCheckoutModal = false" :disabled="isProcessing">Tutup</button>
+    </form>
+  </dialog>
+
+  <dialog class="modal" :class="{ 'modal-open': showSuccessModal }">
+    <div class="modal-box text-center">
+      <svg xmlns="http://www.w3.org/2000/svg" class="text-success w-20 h-20 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+
+      <h3 class="font-bold text-2xl text-success">Pembayaran Berhasil! 🎉</h3>
+      <p class="py-4 text-base-content">Transaksi telah selesai dan pembayaran sudah diterima oleh sistem DOKU.</p>
+
+      <div class="modal-action justify-center mt-2">
+        <button class="btn btn-success text-white w-full max-w-xs" @click="closeSuccessModal">
+          Selesai & Pesanan Baru
+        </button>
+      </div>
+    </div>
+
+    <form method="dialog" class="modal-backdrop">
+      <button @click="closeSuccessModal">close</button>
     </form>
   </dialog>
 </template>
