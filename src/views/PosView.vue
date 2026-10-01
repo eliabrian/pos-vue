@@ -9,7 +9,21 @@ const tenantName = localStorage.getItem('pos_tenant_name')
 const authStore = useAuthStore()
 const cartStore = useCartStore()
 
-const categories = ref([])
+const categories = computed(() => {
+  const catMap = new Map()
+
+  products.value.forEach((p) => {
+    if (p.category && !catMap.has(p.category)) {
+      catMap.set(p.category, p.category_sort)
+    }
+  })
+
+  return Array.from(catMap.entries())
+    .map(([name, sort]) => ({ name, sort }))
+    .sort((a, b) => a.sort - b.sort)
+    .map(c => c.name)
+})
+
 const products = ref([])
 const activeCategory = ref(null)
 const searchQuery = ref('')
@@ -128,15 +142,32 @@ const fetchProducts = async () => {
         stock: item.attributes.stock,
         image: item.attributes.image,
         category: categoryData ? categoryData.attributes.name : 'Lainnya',
+        category_sort: categoryData ? categoryData.attributes.sort : 9999,
         variants: parsedVariants,
       }
     })
 
-    const cats = new Set()
-    products.value.forEach((p) => {
-      if (p.category) cats.add(p.category)
-    })
-    categories.value = Array.from(cats)
+    window.Echo.channel(`product.${authStore.tenant_id}`)
+      .listen('ProductUpdated', (event) => {
+        const index = products.value.findIndex(p => p.id === event.product.id)
+
+        if (index !== -1) {
+          const updatedProduct = {
+            ...products.value[index],
+            name: event.product.name,
+            price: event.product.price,
+            discount: event.product.discount,
+            final_price: event.product.final_price,
+            stock: event.product.stock,
+            image: event.product.image,
+
+            category: event.product.category ? event.product.category.name : products.value[index].category,
+            category_sort: event.product.category ? event.product.category.sort : products.value[index].category_sort,
+          }
+
+          products.value.splice(index, 1, updatedProduct)
+        }
+      })
   } catch (error) {
     console.error('Gagal mengambil data produk', error)
   } finally {
@@ -254,6 +285,7 @@ const handleCancelCheckout = () => {
 
 onUnmounted(() => {
   if (statusInterval) clearInterval(statusInterval)
+  window.Echo.leaveChannel(`product.${authStore.tenant_id}`);
 })
 
 const processPayment = async () => {
@@ -372,41 +404,22 @@ const formatRupiah = (number) => {
 
                 <!-- Items List -->
                 <div class="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
-                  <div
-                    v-for="(item, index) in selectedTransaction?.items || []"
-                    :key="index"
-                    class="flex justify-between text-sm"
-                  >
-                    <div class="flex-1 pr-4">
-                      <span class="font-bold text-base-content"
-                        >{{ item.quantity }}x {{ item.name }}</span
-                      >
+                  <div class="" v-for="(item, index) in selectedTransaction?.items || []" :key="index">
+                    <div class="flex justify-between text-md">
+                        <span class="font-bold text-base-content">{{ item.quantity }}x {{ item.name }}</span>
+                        <span class="font-semibold text-right text-base-content whitespace-nowrap">{{ formatRupiah(item.unit_price) }}</span>
+                    </div>
+                    <div v-if="item.notes" class="text-sm italic text-base-content/50 mt-1">
+                      Catatan: "{{ item.notes }}"
+                    </div>
+                    <div class="text-xs font-medium text-base-content/70 mt-0.5" v-if="item.variant_selected">
+                      <div class="flex justify-between text-sm" v-for="(variant, vIndex) in parseVariants(item.variant_selected)" :key="vIndex">
+                        <span>{{ variant.variant_name }} - {{ variant.item_name }}</span>
+                        <span v-if="variant.price > 0" class="text-base-content/50">+{{ formatRupiah(variant.price) }}</span>
 
-                      <div
-                        v-if="item.variant_selected"
-                        class="text-xs font-medium text-base-content/70 mt-0.5"
-                      >
-                        <div
-                          v-for="(variant, vIndex) in parseVariants(item.variant_selected)"
-                          :key="vIndex"
-                          class="flex justify-between w-full pr-4"
-                        >
-                          <span>+ {{ variant.variant_name }}: {{ variant.item_name }}</span>
-                          <span v-if="variant.price > 0" class="text-base-content/50">
-                            {{ formatRupiah(variant.price) }}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div v-if="item.notes" class="text-xs italic text-base-content/50 mt-1">
-                        Catatan: "{{ item.notes }}"
                       </div>
                     </div>
-                    <span class="font-semibold text-right text-base-content whitespace-nowrap">
-                      {{ formatRupiah(item.sub_total) }}
-                    </span>
                   </div>
-
                   <div
                     v-if="!selectedTransaction?.items?.length"
                     class="text-center text-base-content/40 py-4 italic text-sm"
@@ -783,11 +796,7 @@ const formatRupiah = (number) => {
                 </h4>
                 <p class="text-primary font-semibold text-xs lg:text-sm mt-0.5">
                   {{
-                    formatRupiah(
-                      ((item.final_price > 0 ? item.final_price : item.price) +
-                        item.variant_items.reduce((s, v) => s + v.price, 0)) *
-                        item.quantity,
-                    )
+                    formatRupiah((item.final_price > 0 ? item.final_price : item.price) * item.quantity)
                   }}
                 </p>
                 <div v-if="item.variant_items.length > 0" class="text-xs text-base-content/60 mt-1">
