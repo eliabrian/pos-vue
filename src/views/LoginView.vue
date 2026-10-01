@@ -1,6 +1,6 @@
 <script setup>
 import { useAuthStore } from '@/stores/auth'
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 const authStore = useAuthStore()
@@ -12,6 +12,29 @@ const tenant_id = ref('')
 
 const errorMsg = ref('')
 const isLoading = ref(false)
+
+const currentTime = ref('')
+const currentDate = ref('')
+let clockInterval = null
+
+const updateClock = () => {
+  const now = new Date()
+
+  // Format: 14:30:45 WIB
+  currentTime.value =
+    now.toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }) + ' WIB'
+
+  currentDate.value = now.toLocaleDateString('id-ID', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
 
 const handleLogin = async () => {
   errorMsg.value = ''
@@ -31,6 +54,15 @@ const handleLogin = async () => {
     isLoading.value = false
   }
 }
+
+onMounted(() => {
+  updateClock()
+  clockInterval = setInterval(updateClock, 1000)
+})
+
+onUnmounted(() => {
+  if (clockInterval) clearInterval(clockInterval)
+})
 </script>
 
 <template>
@@ -68,8 +100,8 @@ const handleLogin = async () => {
         </div>
 
         <div class="">
-          <p class="text-4xl font-semibold tracking-wider">Current Time</p>
-          <p class="text-lg opacity-80 mt-1">Current Date</p>
+          <p class="text-4xl font-semibold tracking-wider">{{ currentTime }}</p>
+          <p class="text-lg opacity-80 mt-1">{{ currentDate }}</p>
         </div>
       </div>
 

@@ -21,7 +21,7 @@ const categories = computed(() => {
   return Array.from(catMap.entries())
     .map(([name, sort]) => ({ name, sort }))
     .sort((a, b) => a.sort - b.sort)
-    .map(c => c.name)
+    .map((c) => c.name)
 })
 
 const products = ref([])
@@ -32,6 +32,8 @@ const isProcessing = ref(false)
 const orderDiscount = ref(0)
 const showCheckoutModal = ref(false)
 const selectedPaymentMethod = ref(null)
+
+const orderNotes = ref('')
 
 const activeProduct = ref(null)
 const selectedVariantsMap = ref({})
@@ -44,6 +46,12 @@ const dateFilter = ref('today')
 const customDate = ref('')
 
 const showSuccessModal = ref(false)
+
+const isOnline = ref(navigator.onLine)
+
+const updateOnlineStatus = () => {
+  isOnline.value = navigator.onLine
+}
 
 const formatTime = (isoString) => {
   const date = new Date(isoString)
@@ -77,6 +85,7 @@ const fetchTransactions = async () => {
       return {
         id: order.id,
         receipt_number: order.attributes.receipt_number,
+        notes: order.attributes.notes,
         total_price: parseFloat(order.attributes.total_price),
         payment_method: order.attributes.payment_method,
         created_at: formatTime(order.attributes.created_at),
@@ -149,9 +158,29 @@ const fetchProducts = async () => {
 
     window.Echo.channel(`product.${authStore.tenant_id}`)
       .listen('ProductUpdated', (event) => {
-        const index = products.value.findIndex(p => p.id === event.product.id)
+        const index = products.value.findIndex((p) => p.id === event.product.id)
 
         if (index !== -1) {
+          let incomingVariants = products.value[index].variants
+
+          if (event.product.variants) {
+            incomingVariants = event.product.variants.map((v) => ({
+              id: v.id,
+              name: v.name,
+              is_required: v.is_required,
+              allow_multiple: v.allow_multiple,
+
+              items: (v.variant_items || [])
+                .map((i) => ({
+                  id: i.id,
+                  name: i.name,
+                  price: i.price || 0,
+                  sort: i.sort || 0,
+                }))
+                .sort((a, b) => a.sort - b.sort),
+            }))
+          }
+
           const updatedProduct = {
             ...products.value[index],
             name: event.product.name,
@@ -161,12 +190,30 @@ const fetchProducts = async () => {
             stock: event.product.stock,
             image: event.product.image,
 
-            category: event.product.category ? event.product.category.name : products.value[index].category,
-            category_sort: event.product.category ? event.product.category.sort : products.value[index].category_sort,
+            category: event.product.category
+              ? event.product.category.name
+              : products.value[index].category,
+            category_sort: event.product.category
+              ? event.product.category.sort
+              : products.value[index].category_sort,
+
+            variants: incomingVariants,
           }
 
           products.value.splice(index, 1, updatedProduct)
         }
+      })
+      .listen('CategoryReordered', (event) => {
+        products.value.forEach((product, index) => {
+          if (product.category && event.newSortOrder[product.category] !== undefined) {
+            const updatedProduct = {
+              ...product,
+              category_sort: event.newSortOrder[product.category],
+            }
+
+            products.value.splice(index, 1, updatedProduct)
+          }
+        })
       })
   } catch (error) {
     console.error('Gagal mengambil data produk', error)
@@ -178,6 +225,10 @@ const fetchProducts = async () => {
 onMounted(() => {
   fetchProducts()
   fetchTransactions()
+  updateClock()
+  clockInterval = setInterval(updateClock, 1000)
+  window.addEventListener('online', updateOnlineStatus)
+  window.addEventListener('offline', updateOnlineStatus)
 })
 
 const filteredProducts = computed(() => {
@@ -276,16 +327,19 @@ const checkOrderStatus = (receiptNumber) => {
 }
 
 const handleCancelCheckout = () => {
-  showCheckoutModal.value = false;
+  showCheckoutModal.value = false
   if (statusInterval) {
-    clearInterval(statusInterval);
+    clearInterval(statusInterval)
   }
-  isProcessing.value = false;
-};
+  isProcessing.value = false
+}
 
 onUnmounted(() => {
   if (statusInterval) clearInterval(statusInterval)
-  window.Echo.leaveChannel(`product.${authStore.tenant_id}`);
+  window.Echo.leaveChannel(`product.${authStore.tenant_id}`)
+  if (clockInterval) clearInterval(clockInterval)
+  window.removeEventListener('online', updateOnlineStatus)
+  window.removeEventListener('offline', updateOnlineStatus)
 })
 
 const processPayment = async () => {
@@ -297,6 +351,7 @@ const processPayment = async () => {
       payment_method: selectedPaymentMethod.value,
       status: 'completed',
       order_discount: Number(orderDiscount.value),
+      notes: orderNotes.value,
       products: cartStore.items.map((item) => ({
         id: item.id,
         quantity: item.quantity,
@@ -329,6 +384,7 @@ const processPayment = async () => {
     orderDiscount.value = 0
     showCheckoutModal.value = false
     selectedPaymentMethod.value = null
+    orderNotes.value = ''
     fetchTransactions()
   } catch (error) {
     alert(error.response?.data?.message || 'Gagal memproses transaksi.')
@@ -338,7 +394,7 @@ const processPayment = async () => {
 }
 
 const closeSuccessModal = () => {
-  showSuccessModal.value = false;
+  showSuccessModal.value = false
 }
 
 const handleLogout = async () => {
@@ -353,6 +409,19 @@ const formatRupiah = (number) => {
     maximumFractionDigits: 0,
   }).format(number)
 }
+
+const currentTime = ref('')
+let clockInterval = null
+
+const updateClock = () => {
+  const now = new Date()
+  currentTime.value =
+    now.toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }) + ' WIB'
+}
 </script>
 
 <template>
@@ -366,6 +435,20 @@ const formatRupiah = (number) => {
         </div>
       </div>
       <div class="navbar-end flex items-center gap-2 lg:gap-4 w-auto">
+        <div
+          class="hidden md:flex items-center gap-2.5 font-mono font-bold text-sm lg:text-base text-base-content/70 bg-base-200/50 px-3 py-1.5 rounded-lg border border-base-200"
+        >
+          <div
+            class="w-3 h-3 rounded-full transition-all duration-300"
+            :class="
+              isOnline
+                ? 'bg-green-500 shadow-[0_0_12px_rgba(34,197,94,0.9)]'
+                : 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.9)] animate-pulse'
+            "
+            :title="isOnline ? 'Internet Terhubung' : 'Tidak Ada Internet'"
+          ></div>
+          <span>{{ currentTime }}</span>
+        </div>
         <div class="drawer drawer-end w-fit">
           <input type="checkbox" id="transaction-drawer" class="drawer-toggle" />
           <div class="drawer-content">
@@ -396,6 +479,12 @@ const formatRupiah = (number) => {
                     <p class="text-sm text-base-content/60">
                       {{ selectedTransaction?.receipt_number }}
                     </p>
+                    <p
+                      v-if="selectedTransaction?.notes"
+                      class="text-sm font-semibold text-primary mt-1"
+                    >
+                      Catatan: {{ selectedTransaction.notes }}
+                    </p>
                   </div>
                   <div class="badge badge-primary font-semibold uppercase text-xs">
                     {{ selectedTransaction?.payment_method?.replace('_', ' ') }}
@@ -404,19 +493,35 @@ const formatRupiah = (number) => {
 
                 <!-- Items List -->
                 <div class="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
-                  <div class="" v-for="(item, index) in selectedTransaction?.items || []" :key="index">
+                  <div
+                    class=""
+                    v-for="(item, index) in selectedTransaction?.items || []"
+                    :key="index"
+                  >
                     <div class="flex justify-between text-md">
-                        <span class="font-bold text-base-content">{{ item.quantity }}x {{ item.name }}</span>
-                        <span class="font-semibold text-right text-base-content whitespace-nowrap">{{ formatRupiah(item.unit_price) }}</span>
+                      <span class="font-bold text-base-content"
+                        >{{ item.quantity }}x {{ item.name }}</span
+                      >
+                      <span class="font-semibold text-right text-base-content whitespace-nowrap">{{
+                        formatRupiah(item.unit_price)
+                      }}</span>
                     </div>
                     <div v-if="item.notes" class="text-sm italic text-base-content/50 mt-1">
                       Catatan: "{{ item.notes }}"
                     </div>
-                    <div class="text-xs font-medium text-base-content/70 mt-0.5" v-if="item.variant_selected">
-                      <div class="flex justify-between text-sm" v-for="(variant, vIndex) in parseVariants(item.variant_selected)" :key="vIndex">
+                    <div
+                      class="text-xs font-medium text-base-content/70 mt-0.5"
+                      v-if="item.variant_selected"
+                    >
+                      <div
+                        class="flex justify-between text-sm"
+                        v-for="(variant, vIndex) in parseVariants(item.variant_selected)"
+                        :key="vIndex"
+                      >
                         <span>{{ variant.variant_name }} - {{ variant.item_name }}</span>
-                        <span v-if="variant.price > 0" class="text-base-content/50">+{{ formatRupiah(variant.price) }}</span>
-
+                        <span v-if="variant.price > 0" class="text-base-content/50"
+                          >+{{ formatRupiah(variant.price) }}</span
+                        >
                       </div>
                     </div>
                   </div>
@@ -514,6 +619,9 @@ const formatRupiah = (number) => {
                     <div>
                       <div class="font-bold text-sm text-base-content">{{ tx.receipt_number }}</div>
                       <div class="text-xs text-base-content/50 mt-0.5">{{ tx.created_at }}</div>
+                      <div class="text-md text-base-content/50 mt-0.5" v-if="tx.notes">
+                        Catatan: {{ tx.notes }}
+                      </div>
                     </div>
                     <div class="font-bold text-primary">{{ formatRupiah(tx.total_price) }}</div>
                   </div>
@@ -796,7 +904,9 @@ const formatRupiah = (number) => {
                 </h4>
                 <p class="text-primary font-semibold text-xs lg:text-sm mt-0.5">
                   {{
-                    formatRupiah((item.final_price > 0 ? item.final_price : item.price) * item.quantity)
+                    formatRupiah(
+                      (item.final_price > 0 ? item.final_price : item.price) * item.quantity,
+                    )
                   }}
                 </p>
                 <div v-if="item.variant_items.length > 0" class="text-xs text-base-content/60 mt-1">
@@ -1156,6 +1266,21 @@ const formatRupiah = (number) => {
           </button>
         </div>
 
+        <div class="mt-4 border-t border-base-200 pt-2">
+          <h3 class="font-bold text-xl lg:text-2xl mb-2">Informasi Pesanan</h3>
+          <label class="form-control w-full">
+            <div class="label px-0 mb-1">
+              <span class="label-text text-base-content/60">Catatan</span>
+            </div>
+            <input
+              type="text"
+              v-model="orderNotes"
+              placeholder="Contoh: Meja 4 / Budi"
+              class="input input-bordered w-full focus:input-primary"
+            />
+          </label>
+        </div>
+
         <!-- Bottom Actions -->
         <div class="mt-8 pt-4 flex gap-3">
           <button
@@ -1183,12 +1308,25 @@ const formatRupiah = (number) => {
 
   <dialog class="modal" :class="{ 'modal-open': showSuccessModal }">
     <div class="modal-box text-center">
-      <svg xmlns="http://www.w3.org/2000/svg" class="text-success w-20 h-20 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="text-success w-20 h-20 mx-auto mb-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
       </svg>
 
       <h3 class="font-bold text-2xl text-success">Pembayaran Berhasil! 🎉</h3>
-      <p class="py-4 text-base-content">Transaksi telah selesai dan pembayaran sudah diterima oleh sistem DOKU.</p>
+      <p class="py-4 text-base-content">
+        Transaksi telah selesai dan pembayaran sudah diterima oleh sistem DOKU.
+      </p>
 
       <div class="modal-action justify-center mt-2">
         <button class="btn btn-success text-white w-full max-w-xs" @click="closeSuccessModal">
