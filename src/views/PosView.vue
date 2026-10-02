@@ -114,7 +114,7 @@ watch([dateFilter, customDate], () => {
 
 const fetchProducts = async () => {
   try {
-    const response = await api.get('/api/products?include=category,variants')
+    const response = await api.get('/api/products?include=category,variants,station')
     const rawProducts = response.data.data
     const includedData = response.data.included || []
 

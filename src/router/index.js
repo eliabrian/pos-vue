@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/auth'
+import KdsView from '@/views/KdsView.vue'
 import LoginView from '@/views/LoginView.vue'
 import PosView from '@/views/PosView.vue'
 import { createRouter, createWebHistory } from 'vue-router'
@@ -18,6 +19,12 @@ const router = createRouter({
       component: PosView,
       meta: { requiresAuth: true },
     },
+    {
+      path: '/kds',
+      name: 'kds',
+      component: KdsView,
+      meta: { requiresAuth: true },
+    }
   ],
 })
 
