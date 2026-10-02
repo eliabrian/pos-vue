@@ -148,8 +148,10 @@ const fetchProducts = async () => {
         price: item.attributes.price,
         discount: item.attributes.discount,
         final_price: item.attributes.final_price,
+        is_visible: item.attributes.is_visible,
         stock: item.attributes.stock,
         image: item.attributes.image,
+        category_id: categoryData ? categoryData.id : null,
         category: categoryData ? categoryData.attributes.name : 'Lainnya',
         category_sort: categoryData ? categoryData.attributes.sort : 9999,
         variants: parsedVariants,
@@ -160,47 +162,78 @@ const fetchProducts = async () => {
       .listen('ProductUpdated', (event) => {
         const index = products.value.findIndex((p) => p.id === event.product.id)
 
+        if (!event.product.is_visible) {
+          if (index !== -1) {
+            products.value.splice(index, 1)
+
+            if (activeProduct.value && activeProduct.value.id === event.product.id) {
+              activeProduct.value = null
+            }
+          }
+          return
+        }
+
+        let incomingVariants = index !== -1 ? products.value[index].variants : []
+
+        if (event.product.variants) {
+          incomingVariants = event.product.variants.map((v) => ({
+            id: v.id,
+            name: v.name,
+            is_required: v.is_required,
+            allow_multiple: v.allow_multiple,
+            items: (v.variant_items || [])
+              .map((i) => ({
+                id: i.id,
+                name: i.name,
+                price: i.price || 0,
+                sort: i.sort || 0,
+              }))
+              .sort((a, b) => a.sort - b.sort),
+          }))
+        }
+
+        const formattedProduct = {
+          ...(index !== -1 ? products.value[index] : {}),
+
+          id: event.product.id,
+          name: event.product.name,
+          price: event.product.price,
+          discount: event.product.discount,
+          final_price: event.product.final_price,
+          is_visible: event.product.is_visible,
+          stock: event.product.stock,
+          image: event.product.image,
+
+          category_id: event.product.category
+            ? event.product.category.id
+            : (index !== -1 ? products.value[index].category_id : null),
+
+          category: event.product.category
+            ? event.product.category.name
+            : (index !== -1 ? products.value[index].category : 'Lainnya'),
+
+          category_sort: event.product.category
+            ? event.product.category.sort
+            : (index !== -1 ? products.value[index].category_sort : 9999),
+
+          variants: incomingVariants,
+        }
+
         if (index !== -1) {
-          let incomingVariants = products.value[index].variants
+          products.value.splice(index, 1, formattedProduct)
+        } else {
+          products.value.unshift(formattedProduct)
+        }
+      })
+      .listen('ProductDeleted', (event) => {
+        const index = products.value.findIndex((p) => p.id === event.product.id)
 
-          if (event.product.variants) {
-            incomingVariants = event.product.variants.map((v) => ({
-              id: v.id,
-              name: v.name,
-              is_required: v.is_required,
-              allow_multiple: v.allow_multiple,
+        if (index !== -1) {
+          products.value.splice(index, 1)
 
-              items: (v.variant_items || [])
-                .map((i) => ({
-                  id: i.id,
-                  name: i.name,
-                  price: i.price || 0,
-                  sort: i.sort || 0,
-                }))
-                .sort((a, b) => a.sort - b.sort),
-            }))
+          if (activeProduct.value && activeProduct.value.id === event.productId) {
+            activeProduct.value = null
           }
-
-          const updatedProduct = {
-            ...products.value[index],
-            name: event.product.name,
-            price: event.product.price,
-            discount: event.product.discount,
-            final_price: event.product.final_price,
-            stock: event.product.stock,
-            image: event.product.image,
-
-            category: event.product.category
-              ? event.product.category.name
-              : products.value[index].category,
-            category_sort: event.product.category
-              ? event.product.category.sort
-              : products.value[index].category_sort,
-
-            variants: incomingVariants,
-          }
-
-          products.value.splice(index, 1, updatedProduct)
         }
       })
       .listen('CategoryReordered', (event) => {
@@ -209,6 +242,21 @@ const fetchProducts = async () => {
             const updatedProduct = {
               ...product,
               category_sort: event.newSortOrder[product.category],
+            }
+
+            products.value.splice(index, 1, updatedProduct)
+          }
+        })
+      })
+      .listen('CategoryUpdated', (event) => {
+          products.value.forEach((product, index) => {
+
+          if (product.category_id == event.category.id) {
+
+            const updatedProduct = {
+              ...product,
+              category: event.category.name,
+              category_sort: event.category.sort,
             }
 
             products.value.splice(index, 1, updatedProduct)
