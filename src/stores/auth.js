@@ -44,6 +44,8 @@ export const useAuthStore = defineStore('auth', {
         localStorage.removeItem('pos_tenant_name')
         localStorage.removeItem('pos_token')
         localStorage.removeItem('pos_tenant_id')
+        localStorage.removeItem('kds_station_id')
+        localStorage.removeItem('kds_station_name')
       }
     },
   },

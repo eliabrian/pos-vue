@@ -2,6 +2,8 @@ import { useAuthStore } from '@/stores/auth'
 import KdsView from '@/views/KdsView.vue'
 import LoginView from '@/views/LoginView.vue'
 import PosView from '@/views/PosView.vue'
+import SubscriptionLockedView from '@/views/SubscriptionLockedView.vue'
+import UpgradeRequired from '@/views/UpgradeRequired.vue'
 import { createRouter, createWebHistory } from 'vue-router'
 
 const router = createRouter({
@@ -24,6 +26,18 @@ const router = createRouter({
       name: 'kds',
       component: KdsView,
       meta: { requiresAuth: true },
+    },
+    {
+      path: '/locked',
+      name: 'locked',
+      component: SubscriptionLockedView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/upgrade',
+      name: 'upgrade',
+      component: UpgradeRequired,
+      meta: { requiresAuth: true }
     }
   ],
 })

@@ -49,7 +49,9 @@ onMounted(() => {
             typeof item.variant_selected === 'string'
               ? JSON.parse(item.variant_selected || '[]')
               : item.variant_selected || []
-        } catch (e) {}
+        } catch (e) {
+          console.log(e)
+        }
 
         return {
           ...item,
