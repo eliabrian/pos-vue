@@ -37,8 +37,8 @@ const router = createRouter({
       path: '/upgrade',
       name: 'upgrade',
       component: UpgradeRequired,
-      meta: { requiresAuth: true }
-    }
+      meta: { requiresAuth: true },
+    },
   ],
 })
 

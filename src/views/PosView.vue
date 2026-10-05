@@ -206,15 +206,21 @@ const fetchProducts = async () => {
 
           category_id: event.product.category
             ? event.product.category.id
-            : (index !== -1 ? products.value[index].category_id : null),
+            : index !== -1
+              ? products.value[index].category_id
+              : null,
 
           category: event.product.category
             ? event.product.category.name
-            : (index !== -1 ? products.value[index].category : 'Lainnya'),
+            : index !== -1
+              ? products.value[index].category
+              : 'Lainnya',
 
           category_sort: event.product.category
             ? event.product.category.sort
-            : (index !== -1 ? products.value[index].category_sort : 9999),
+            : index !== -1
+              ? products.value[index].category_sort
+              : 9999,
 
           variants: incomingVariants,
         }
@@ -249,10 +255,8 @@ const fetchProducts = async () => {
         })
       })
       .listen('CategoryUpdated', (event) => {
-          products.value.forEach((product, index) => {
-
+        products.value.forEach((product, index) => {
           if (product.category_id == event.category.id) {
-
             const updatedProduct = {
               ...product,
               category: event.category.name,
@@ -277,6 +281,20 @@ onMounted(() => {
   clockInterval = setInterval(updateClock, 1000)
   window.addEventListener('online', updateOnlineStatus)
   window.addEventListener('offline', updateOnlineStatus)
+
+  if (!document.querySelector('script[src*="jokul-checkout"]')) {
+    const script = document.createElement('script')
+
+    if (import.meta.env.VITE_ENV !== 'production') {
+      script.src = 'https://sandbox.doku.com/jokul-checkout-js/v1/jokul-checkout-1.0.0.js'
+    } else {
+      script.src = 'https://jokul.doku.com/jokul-checkout-js/v1/jokul-checkout-1.0.0.js'
+    }
+
+    script.async = true
+
+    document.head.appendChild(script)
+  }
 })
 
 const filteredProducts = computed(() => {
